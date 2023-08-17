@@ -3,6 +3,7 @@ node_modules/
 
 # Ignore compiled artifacts
 contracts/artifacts/
+tests/artifacts/
 .daps/
 .deps/
 
