@@ -42,8 +42,10 @@ contract BigBond is Ownable, Pausable {
         uint256 withdrawPrincipalWithInterest
     );
     event ClaimEvent(address indexed user, uint256 pendingAmount);
-    event borrowEvent(address indexed operator, uint256 borrowAmount);
-    event repayEvent(address indexed operator, uint256 repayAmount);
+    event BorrowEvent(address indexed operator, uint256 borrowAmount);
+    event RepayEvent(address indexed operator, uint256 repayAmount);
+    event AdminChanged(address newAdmin);
+    event OperatorChanged(address newOperator);
 
     /// Modifiers for the state machine
     modifier stateIsNormal(address user) {
@@ -96,6 +98,10 @@ contract BigBond is Ownable, Pausable {
         return tokenAddress.balanceOf(address(this));
     }
 
+    function getUserState(address user) public view returns (Asset memory) {
+        return userAssets[user];
+    }
+
     function calculateDigestForRequest(
         uint256 withdrawPrincipal,
         uint256 withdrawPrincipalWithInterest,
@@ -115,6 +121,7 @@ contract BigBond is Ownable, Pausable {
     function depositAsset(uint256 depositAmount)
         public
         amountNotZero(depositAmount)
+        whenNotPaused
     {
         // Transfer token
         tokenAddress.transferFrom(_msgSender(), address(this), depositAmount);
@@ -130,7 +137,12 @@ contract BigBond is Ownable, Pausable {
         uint256 withdrawPrincipalWithInterest, // Given by operator from backend
         uint256 signingTime, // Given by operator from backend
         bytes memory signature // Signed by operator
-    ) public stateIsNormal(_msgSender()) amountNotZero(withdrawPrincipal) {
+    )
+        public
+        stateIsNormal(_msgSender())
+        amountNotZero(withdrawPrincipal)
+        whenNotPaused
+    {
         // Change the state
         Asset storage asset = userAssets[_msgSender()];
         require(
@@ -166,7 +178,7 @@ contract BigBond is Ownable, Pausable {
         );
     }
 
-    function claimAsset() public stateIsPending(_msgSender()) {
+    function claimAsset() public stateIsPending(_msgSender()) whenNotPaused {
         // Change the state
         Asset storage asset = userAssets[_msgSender()];
         uint256 pendingAmount = asset.pendingAmount;
@@ -185,22 +197,40 @@ contract BigBond is Ownable, Pausable {
     }
 
     /// Functions for operator
-    function borrowAssets(uint256 borrowAmount) public onlyOperator {
+    function borrowAssets(uint256 borrowAmount)
+        public
+        onlyOperator
+        whenNotPaused
+    {
         tokenAddress.transfer(operator, borrowAmount);
-        emit borrowEvent(operator, borrowAmount);
+        emit BorrowEvent(operator, borrowAmount);
     }
 
-    function repayAssets(uint256 repayAmount) public onlyOperator {
+    function repayAssets(uint256 repayAmount)
+        public
+        onlyOperator
+        whenNotPaused
+    {
         tokenAddress.transferFrom(operator, address(this), repayAmount);
-        emit repayEvent(operator, repayAmount);
+        emit RepayEvent(operator, repayAmount);
     }
 
     /// Functions for Admin
     function setAdmin(address newAdmin) public onlyAdmin {
         admin = newAdmin;
+        emit AdminChanged(newAdmin);
     }
 
     function setOperator(address newOperator) public onlyAdmin {
         operator = newOperator;
+        emit OperatorChanged(newOperator);
+    }
+
+    function pause() public onlyAdmin {
+        _pause();
+    }
+
+    function unpause() public onlyAdmin {
+        _unpause();
     }
 }
