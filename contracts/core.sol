@@ -3,29 +3,28 @@ pragma solidity ^0.8.9;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 contract BigBond is Ownable, Pausable {
     /// Structs and state variables
     enum AssetStatus {
         Normal,
-        Pending,
-        Claimable
+        Pending
     }
 
     struct Asset {
-        uint256 depositAmount;
+        uint256 totalDepositAmount;
         uint256 pendingAmount;
-        uint256 claimableAmount;
         AssetStatus status;
-        uint256 lastRequestTimestamp;
+        uint256 requestTime;
     }
 
-    uint256 constant RATIFY_TIME_LIMIT = 7 days;
+    uint256 constant SIGNATURE_VALID_TIME = 3 minutes;
+    uint256 constant LOCKING_TIME = 7 days;
     address public admin; // The root admin of this contract
     address public operator; // The RWA operator role
-    uint256 public operatorDebt; // The amount of token that the operator needs to repay
     mapping(address => Asset) public userAssets;
     IERC20 public immutable tokenAddress;
 
@@ -36,17 +35,15 @@ contract BigBond is Ownable, Pausable {
     }
 
     /// Events for state transitions
-    event DepositEvent(address indexed user, uint256 amount);
-    event RequestEvent(address indexed user, uint256 amount);
-    event ClaimEvent(address indexed user, uint256 amount);
-    event RatifyNormalEvent(address indexed user, uint256 amount);
-    event RatifyExpiredEvent(
+    event DepositEvent(address indexed user, uint256 depositAmount);
+    event RequestEvent(
         address indexed user,
-        uint256 amount,
-        uint256 extraTime
+        uint256 withdrawPrincipal,
+        uint256 withdrawPrincipalWithInterest
     );
-    event borrowEvent(address indexed operator, uint256 amount);
-    event repayEvent(address indexed operator, uint256 amount);
+    event ClaimEvent(address indexed user, uint256 pendingAmount);
+    event borrowEvent(address indexed operator, uint256 borrowAmount);
+    event repayEvent(address indexed operator, uint256 repayAmount);
 
     /// Modifiers for the state machine
     modifier stateIsNormal(address user) {
@@ -65,14 +62,6 @@ contract BigBond is Ownable, Pausable {
         _;
     }
 
-    modifier stateIsClaimable(address user) {
-        require(
-            userAssets[user].status == AssetStatus.Claimable,
-            "The state of user needs to be 'Claimable' in this function."
-        );
-        _;
-    }
-
     modifier amountNotZero(uint256 amount) {
         require(amount > 0, "Amount must be greater than 0!");
         _;
@@ -86,7 +75,19 @@ contract BigBond is Ownable, Pausable {
         _;
     }
 
+    modifier onlyAdmin() {
+        require(
+            _msgSender() == getAdmin(),
+            "Only the admin can call this function!"
+        );
+        _;
+    }
+
     /// View functions
+    function getAdmin() public view returns (address) {
+        return admin;
+    }
+
     function getOperator() public view returns (address) {
         return operator;
     }
@@ -95,92 +96,111 @@ contract BigBond is Ownable, Pausable {
         return tokenAddress.balanceOf(address(this));
     }
 
+    function calculateDigestForRequest(
+        uint256 withdrawPrincipal,
+        uint256 withdrawPrincipalWithInterest,
+        uint256 signingTime
+    ) public pure returns (bytes32) {
+        return
+            keccak256(
+                abi.encode(
+                    withdrawPrincipal,
+                    withdrawPrincipalWithInterest,
+                    signingTime
+                )
+            );
+    }
+
     /// Functions for users
-    function depositAsset(uint256 amount) public amountNotZero(amount) {
-        // Transfer token
-        tokenAddress.transferFrom(_msgSender(), address(this), amount);
-
-        // Change the state
-        Asset storage asset = userAssets[_msgSender()];
-        asset.depositAmount += amount;
-        emit DepositEvent(_msgSender(), amount);
-    }
-
-    function requestWithdraw(uint256 amount)
+    function depositAsset(uint256 depositAmount)
         public
-        stateIsNormal(_msgSender())
-        amountNotZero(amount)
+        amountNotZero(depositAmount)
     {
-        Asset storage asset = userAssets[_msgSender()];
-        require(asset.depositAmount >= amount, "Insufficient funds");
-        asset.depositAmount -= amount;
-        asset.pendingAmount += amount;
-        asset.status = AssetStatus.Pending;
-        asset.lastRequestTimestamp = block.timestamp;
-        emit RequestEvent(_msgSender(), amount);
-    }
+        // Transfer token
+        tokenAddress.transferFrom(_msgSender(), address(this), depositAmount);
 
-    function claim() public stateIsClaimable(_msgSender()) {
         // Change the state
         Asset storage asset = userAssets[_msgSender()];
-        uint256 claimableAmount = asset.claimableAmount;
-        asset.claimableAmount = 0;
+        asset.totalDepositAmount += depositAmount;
+        emit DepositEvent(_msgSender(), depositAmount);
+    }
+
+    function requestWithdraw(
+        uint256 withdrawPrincipal, // Given by user from frontend
+        uint256 withdrawPrincipalWithInterest, // Given by operator from backend
+        uint256 signingTime, // Given by operator from backend
+        bytes memory signature // Signed by operator
+    ) public stateIsNormal(_msgSender()) amountNotZero(withdrawPrincipal) {
+        // Change the state
+        Asset storage asset = userAssets[_msgSender()];
+        require(
+            asset.totalDepositAmount >= withdrawPrincipal,
+            "Insufficient funds"
+        );
+        asset.totalDepositAmount -= withdrawPrincipal;
+        asset.pendingAmount += withdrawPrincipalWithInterest;
+        asset.status = AssetStatus.Pending;
+        asset.requestTime = block.timestamp;
+        emit RequestEvent(
+            _msgSender(),
+            withdrawPrincipal,
+            withdrawPrincipalWithInterest
+        );
+
+        // Check the signature
+        bytes32 digest = calculateDigestForRequest(
+            withdrawPrincipal,
+            withdrawPrincipalWithInterest,
+            signingTime
+        );
+        address expected_address = ECDSA.recover(digest, signature);
+        require(
+            expected_address == getOperator(),
+            "The signer is not the operator!"
+        );
+
+        // Check the signing time
+        require(
+            signingTime + SIGNATURE_VALID_TIME > block.timestamp,
+            "The signature is expired!"
+        );
+    }
+
+    function claimAsset() public stateIsPending(_msgSender()) {
+        // Change the state
+        Asset storage asset = userAssets[_msgSender()];
+        uint256 pendingAmount = asset.pendingAmount;
+        asset.pendingAmount = 0;
         asset.status = AssetStatus.Normal;
 
         // Transfer token
-        tokenAddress.transfer(_msgSender(), claimableAmount);
-        emit ClaimEvent(_msgSender(), claimableAmount);
+        tokenAddress.transfer(_msgSender(), pendingAmount);
+        emit ClaimEvent(_msgSender(), pendingAmount);
+
+        // Check the locking time
+        require(
+            asset.requestTime + LOCKING_TIME < block.timestamp,
+            "You can only claim the assets 7 days after request!"
+        );
     }
 
     /// Functions for operator
-    function ratifyWithin7days(address user, uint256 claimableAmount)
-        public
-        stateIsPending(user)
-        onlyOperator
-    {
-        Asset storage asset = userAssets[user];
-        require(
-            block.timestamp <= asset.lastRequestTimestamp + RATIFY_TIME_LIMIT,
-            "Ratification time expired. Please call `ratifyExpired`."
-        );
-        asset.claimableAmount = claimableAmount; // Need to test this.
-        asset.pendingAmount = 0;
-        asset.status = AssetStatus.Claimable;
-        emit RatifyNormalEvent(user, claimableAmount);
-    }
-
-    function ratifyExpire(address user, uint256 claimableAmount)
-        public
-        stateIsPending(user)
-        onlyOperator
-    {
-        Asset storage asset = userAssets[user];
-        require(
-            block.timestamp > asset.lastRequestTimestamp + RATIFY_TIME_LIMIT,
-            "Ratification time isn't expired. Please call `ratifyWithin7days`."
-        );
-        asset.claimableAmount = claimableAmount;
-        asset.pendingAmount = 0;
-        asset.status = AssetStatus.Claimable;
-        uint256 extraTime = block.timestamp -
-            asset.lastRequestTimestamp -
-            RATIFY_TIME_LIMIT;
-        emit RatifyExpiredEvent(user, claimableAmount, extraTime);
-    }
-
     function borrowAssets(uint256 borrowAmount) public onlyOperator {
         tokenAddress.transfer(operator, borrowAmount);
-        operatorDebt += borrowAmount;
         emit borrowEvent(operator, borrowAmount);
     }
 
     function repayAssets(uint256 repayAmount) public onlyOperator {
-        require(
-            repayAmount <= operatorDebt,
-            "The repay amount should less than the debt!"
-        );
         tokenAddress.transferFrom(operator, address(this), repayAmount);
-        operatorDebt -= repayAmount;
         emit repayEvent(operator, repayAmount);
+    }
+
+    /// Functions for Admin
+    function setAdmin(address newAdmin) public onlyAdmin {
+        admin = newAdmin;
+    }
+
+    function setOperator(address newOperator) public onlyAdmin {
+        operator = newOperator;
     }
 }
