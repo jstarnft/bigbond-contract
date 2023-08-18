@@ -3,7 +3,7 @@ pragma solidity >=0.7.0 <0.9.0;
 import "remix_tests.sol"; // this import is automatically injected by Remix.
 import "remix_accounts.sol"; // this import is automatically injected by Remix.
 import "hardhat/console.sol";
-import "../contracts/core.sol";
+import "../contracts/BigBond.sol";
 import "../contracts/mockTokenDeploy.sol";
 
 contract CoreTest {
