@@ -5,8 +5,10 @@ import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
+/**
+ * @title BigBond
+ */
 contract BigBond is Pausable {
-    /// Structs and state variables
     enum AssetStatus {
         Normal,
         Pending
@@ -26,13 +28,18 @@ contract BigBond is Pausable {
     mapping(address => Asset) public userAssets;
     IERC20 public immutable tokenAddress;
 
+    /**
+     * @dev Initializes the contract with the token address and operator.
+     * @param tokenAddressInput: The address of the ERC20 token contract.
+     * @param operatorInput: The address of the RWA operator.
+     */
     constructor(address tokenAddressInput, address operatorInput) {
         admin = _msgSender();
         tokenAddress = IERC20(tokenAddressInput);
         operator = operatorInput;
     }
 
-    /// Events for state transitions
+    /* ------------- Events ------------- */
     event DepositEvent(address indexed user, uint256 depositAmount);
     event RequestEvent(
         address indexed user,
@@ -45,7 +52,7 @@ contract BigBond is Pausable {
     event AdminChanged(address newAdmin);
     event OperatorChanged(address newOperator);
 
-    /// Errors for judgments
+    /* ------------- Errors ------------- */
     error UserStateIsNotNormal();
     error UserStateIsNotPending();
     error AmountIsZero();
@@ -56,7 +63,7 @@ contract BigBond is Pausable {
     error SignatureExpired();
     error ClaimTooEarly();
 
-    /// Modifiers for the state machine
+    /* ------------- Modifiers ------------- */
     modifier stateIsNormal(address user) {
         if (userAssets[user].status != AssetStatus.Normal) {
             revert UserStateIsNotNormal();
@@ -92,7 +99,7 @@ contract BigBond is Pausable {
         _;
     }
 
-    /// View functions
+    /* ------------- View functions ------------- */
     function getSignatureValidTime() public view returns (uint256) {
         return SIGNATURE_VALID_TIME;
     }
@@ -132,7 +139,11 @@ contract BigBond is Pausable {
             );
     }
 
-    /// Functions for users
+    /* ------------- Functions for users ------------- */
+    /**
+     * @dev Allows users to deposit assets into the contract.
+     * @param depositAmount: The amount of tokens to be deposited.
+     */
     function depositAsset(uint256 depositAmount)
         public
         amountNotZero(depositAmount)
@@ -147,6 +158,15 @@ contract BigBond is Pausable {
         emit DepositEvent(_msgSender(), depositAmount);
     }
 
+    /**
+     * @dev Allows users to request a withdrawal of assets.
+     * @param withdrawPrincipal: The principal amount requested for withdrawal. This param should be given by user.
+     * @param withdrawPrincipalWithInterest: The principal amount with interest. This param should be given by the 
+            operator from backend.
+     * @param signingTime: The time when the request was signed. The user must use this signature in a certain time, 
+            usually 3 minutes.
+     * @param signature: The operator's signature for request validation.
+     */
     function requestWithdraw(
         uint256 withdrawPrincipal, // Given by user from frontend
         uint256 withdrawPrincipalWithInterest, // Given by operator from backend
@@ -190,6 +210,10 @@ contract BigBond is Pausable {
         }
     }
 
+    /**
+     * @dev Allows users to claim their pending assets after a withdrawal request is approved. The user should call this
+                function at least a certain time after requesting, usually 7 days.
+     */
     function claimAsset() public stateIsPending(_msgSender()) whenNotPaused {
         // Change the state
         Asset storage asset = userAssets[_msgSender()];
@@ -207,7 +231,10 @@ contract BigBond is Pausable {
         }
     }
 
-    /// Functions for operator
+    /* ------------- Functions for operator ------------- */
+    /**
+     * @dev Allows the operator to borrow assets from the contract.
+     */
     function borrowAssets(uint256 borrowAmount)
         public
         onlyOperator
@@ -217,6 +244,9 @@ contract BigBond is Pausable {
         emit BorrowEvent(operator, borrowAmount);
     }
 
+    /**
+     * @dev Allows the operator to repay assets to the contract.
+     */
     function repayAssets(uint256 repayAmount)
         public
         onlyOperator
@@ -226,7 +256,7 @@ contract BigBond is Pausable {
         emit RepayEvent(operator, repayAmount);
     }
 
-    /// Functions for Admin
+    /* ------------- Functions for admin ------------- */
     function setAdmin(address newAdmin) public onlyAdmin {
         admin = newAdmin;
         emit AdminChanged(newAdmin);
