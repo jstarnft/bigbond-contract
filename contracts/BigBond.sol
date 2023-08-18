@@ -19,8 +19,8 @@ contract BigBond is Pausable {
         uint256 requestTime;
     }
 
-    uint256 constant SIGNATURE_VALID_TIME = 3 minutes;
-    uint256 constant LOCKING_TIME = 7 days;
+    uint256 SIGNATURE_VALID_TIME = 3 minutes;
+    uint256 LOCKING_TIME = 7 days;
     address public admin; // The root admin of this contract
     address public operator; // The RWA operator role
     mapping(address => Asset) public userAssets;
@@ -45,45 +45,62 @@ contract BigBond is Pausable {
     event AdminChanged(address newAdmin);
     event OperatorChanged(address newOperator);
 
+    /// Errors for judgments
+    error UserStateIsNotNormal();
+    error UserStateIsNotPending();
+    error AmountIsZero();
+    error NotOperator();
+    error NotAdmin();
+    error InsufficientFund();
+    error SignerIsNotOperator();
+    error SignatureExpired();
+    error ClaimTooEarly();
+
     /// Modifiers for the state machine
     modifier stateIsNormal(address user) {
-        require(
-            userAssets[user].status == AssetStatus.Normal,
-            "The state of user needs to be 'Normal' in this function."
-        );
+        if (userAssets[user].status != AssetStatus.Normal) {
+            revert UserStateIsNotNormal();
+        }
         _;
     }
 
     modifier stateIsPending(address user) {
-        require(
-            userAssets[user].status == AssetStatus.Pending,
-            "The state of user needs to be 'Pending' in this function."
-        );
+        if (userAssets[user].status != AssetStatus.Pending) {
+            revert UserStateIsNotPending();
+        }
         _;
     }
 
     modifier amountNotZero(uint256 amount) {
-        require(amount > 0, "Amount must be greater than 0!");
+        if (amount == 0) {
+            revert AmountIsZero();
+        }
         _;
     }
 
     modifier onlyOperator() {
-        require(
-            _msgSender() == getOperator(),
-            "Only the operator can call this function!"
-        );
+        if (_msgSender() != getOperator()) {
+            revert NotOperator();
+        }
         _;
     }
 
     modifier onlyAdmin() {
-        require(
-            _msgSender() == getAdmin(),
-            "Only the admin can call this function!"
-        );
+        if (_msgSender() != getAdmin()) {
+            revert NotAdmin();
+        }
         _;
     }
 
     /// View functions
+    function getSignatureValidTime() public view returns (uint256) {
+        return SIGNATURE_VALID_TIME;
+    }
+
+    function getLockingTime() public view returns (uint256) {
+        return LOCKING_TIME;
+    }
+
     function getAdmin() public view returns (address) {
         return admin;
     }
@@ -143,10 +160,9 @@ contract BigBond is Pausable {
     {
         // Change the state
         Asset storage asset = userAssets[_msgSender()];
-        require(
-            asset.totalDepositAmount >= withdrawPrincipal,
-            "Insufficient funds"
-        );
+        if (asset.totalDepositAmount < withdrawPrincipal) {
+            revert InsufficientFund();
+        }
         asset.totalDepositAmount -= withdrawPrincipal;
         asset.pendingAmount += withdrawPrincipalWithInterest;
         asset.status = AssetStatus.Pending;
@@ -164,16 +180,14 @@ contract BigBond is Pausable {
             signingTime
         );
         address expected_address = ECDSA.recover(digest, signature);
-        require(
-            expected_address == getOperator(),
-            "The signer is not the operator!"
-        );
+        if (expected_address != getOperator()) {
+            revert SignerIsNotOperator();
+        }
 
         // Check the signing time
-        require(
-            signingTime + SIGNATURE_VALID_TIME > block.timestamp,
-            "The signature is expired!"
-        );
+        if (signingTime + SIGNATURE_VALID_TIME <= block.timestamp) {
+            revert SignatureExpired();
+        }
     }
 
     function claimAsset() public stateIsPending(_msgSender()) whenNotPaused {
@@ -188,10 +202,9 @@ contract BigBond is Pausable {
         emit ClaimEvent(_msgSender(), pendingAmount);
 
         // Check the locking time
-        require(
-            asset.requestTime + LOCKING_TIME < block.timestamp,
-            "You can only claim the assets 7 days after request!"
-        );
+        if (asset.requestTime + LOCKING_TIME >= block.timestamp) {
+            revert ClaimTooEarly();
+        }
     }
 
     /// Functions for operator
@@ -222,6 +235,14 @@ contract BigBond is Pausable {
     function setOperator(address newOperator) public onlyAdmin {
         operator = newOperator;
         emit OperatorChanged(newOperator);
+    }
+
+    function setSignatureValidTime(uint256 newTime) public onlyAdmin {
+        SIGNATURE_VALID_TIME = newTime;
+    }
+
+    function setLockingTime(uint256 newTime) public onlyAdmin {
+        LOCKING_TIME = newTime;
     }
 
     function pause() public onlyAdmin {
