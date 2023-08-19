@@ -124,6 +124,10 @@ contract BigBond is Pausable {
         return userAssets[user];
     }
 
+    /**
+     * @dev This function returns a digest. The operator from backend will sign this digest and the signature is 
+            passed to the user.
+     */
     function calculateDigestForRequest(
         uint256 withdrawPrincipal,
         uint256 withdrawPrincipalWithInterest,
@@ -212,7 +216,7 @@ contract BigBond is Pausable {
 
     /**
      * @dev Allows users to claim their pending assets after a withdrawal request is approved. The user should call this
-                function at least a certain time after requesting, usually 7 days.
+            function at least a certain time after requesting, usually 7 days.
      */
     function claimAsset() public stateIsPending(_msgSender()) whenNotPaused {
         // Change the state
