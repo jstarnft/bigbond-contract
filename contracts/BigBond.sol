@@ -15,9 +15,8 @@ contract BigBond is Pausable {
     }
 
     struct Asset {
-        uint256 totalDepositAmount;
-        uint256 pendingAmount;
         AssetStatus status;
+        uint256 pendingAmount;
         uint256 requestTime;
     }
 
@@ -41,12 +40,8 @@ contract BigBond is Pausable {
 
     /* ------------- Events ------------- */
     event DepositEvent(address indexed user, uint256 depositAmount);
-    event RequestEvent(
-        address indexed user,
-        uint256 withdrawPrincipal,
-        uint256 withdrawPrincipalWithInterest
-    );
-    event ClaimEvent(address indexed user, uint256 pendingAmount);
+    event RequestEvent(address indexed user, uint256 withdrawAmount);
+    event ClaimEvent(address indexed user, uint256 withdrawAmount);
     event BorrowEvent(address indexed operator, uint256 borrowAmount);
     event RepayEvent(address indexed operator, uint256 repayAmount);
     event AdminChanged(address newAdmin);
@@ -58,8 +53,7 @@ contract BigBond is Pausable {
     error AmountIsZero();
     error NotOperator();
     error NotAdmin();
-    error InsufficientFund();
-    error SignerIsNotOperator();
+    error SignatureInvalid();
     error SignatureExpired();
     error ClaimTooEarly();
 
@@ -116,7 +110,7 @@ contract BigBond is Pausable {
         return operator;
     }
 
-    function currentBalance() public view returns (uint256) {
+    function currentTotalBalance() public view returns (uint256) {
         return tokenAddress.balanceOf(address(this));
     }
 
@@ -129,18 +123,10 @@ contract BigBond is Pausable {
             passed to the user.
      */
     function calculateDigestForRequest(
-        uint256 withdrawPrincipal,
-        uint256 withdrawPrincipalWithInterest,
+        uint256 withdrawAmount,
         uint256 signingTime
     ) public pure returns (bytes32) {
-        return
-            keccak256(
-                abi.encode(
-                    withdrawPrincipal,
-                    withdrawPrincipalWithInterest,
-                    signingTime
-                )
-            );
+        return keccak256(abi.encode(withdrawAmount, signingTime));
     }
 
     /* ------------- Functions for users ------------- */
@@ -153,62 +139,43 @@ contract BigBond is Pausable {
         amountNotZero(depositAmount)
         whenNotPaused
     {
-        // Transfer token
         tokenAddress.transferFrom(_msgSender(), address(this), depositAmount);
-
-        // Change the state
-        Asset storage asset = userAssets[_msgSender()];
-        asset.totalDepositAmount += depositAmount;
         emit DepositEvent(_msgSender(), depositAmount);
     }
 
     /**
      * @dev Allows users to request a withdrawal of assets.
-     * @param withdrawPrincipal: The principal amount requested for withdrawal. This param should be given by user.
-     * @param withdrawPrincipalWithInterest: The principal amount with interest. This param should be given by the 
-            operator from backend.
-     * @param signingTime: The time when the request was signed. The user must use this signature in a certain time, 
+     * @param withdrawAmount: The amount requested to withdraw. This param should be given by user from frontend, 
+            and checked by the operator from the backend.
+     * @param signingTime: The time when the request was signed. The user must use this signature within a certain time, 
             usually 3 minutes.
      * @param signature: The operator's signature for request validation.
      */
     function requestWithdraw(
-        uint256 withdrawPrincipal, // Given by user from frontend
-        uint256 withdrawPrincipalWithInterest, // Given by operator from backend
+        uint256 withdrawAmount, // Given by user from frontend
         uint256 signingTime, // Given by operator from backend
         bytes memory signature // Signed by operator
     )
         public
         stateIsNormal(_msgSender())
-        amountNotZero(withdrawPrincipal)
+        amountNotZero(withdrawAmount)
         whenNotPaused
     {
         // Change the state
         Asset storage asset = userAssets[_msgSender()];
-        if (asset.totalDepositAmount < withdrawPrincipal) {
-            revert InsufficientFund();
-        }
-        asset.totalDepositAmount -= withdrawPrincipal;
-        asset.pendingAmount += withdrawPrincipalWithInterest;
+        asset.pendingAmount = withdrawAmount;
         asset.status = AssetStatus.Pending;
         asset.requestTime = block.timestamp;
-        emit RequestEvent(
-            _msgSender(),
-            withdrawPrincipal,
-            withdrawPrincipalWithInterest
-        );
+        emit RequestEvent(_msgSender(), withdrawAmount);
 
-        // Check the signature
-        bytes32 digest = calculateDigestForRequest(
-            withdrawPrincipal,
-            withdrawPrincipalWithInterest,
-            signingTime
-        );
+        // Recover signature
+        bytes32 digest = calculateDigestForRequest(withdrawAmount, signingTime);
         address expected_address = ECDSA.recover(digest, signature);
-        if (expected_address != getOperator()) {
-            revert SignerIsNotOperator();
-        }
 
-        // Check the signing time
+        // Check the validity of signature
+        if (expected_address != getOperator()) {
+            revert SignatureInvalid();
+        }
         if (signingTime + SIGNATURE_VALID_TIME <= block.timestamp) {
             revert SignatureExpired();
         }
@@ -224,10 +191,11 @@ contract BigBond is Pausable {
         uint256 pendingAmount = asset.pendingAmount;
         asset.pendingAmount = 0;
         asset.status = AssetStatus.Normal;
+        asset.requestTime = 0;
+        emit ClaimEvent(_msgSender(), pendingAmount);
 
         // Transfer token
         tokenAddress.transfer(_msgSender(), pendingAmount);
-        emit ClaimEvent(_msgSender(), pendingAmount);
 
         // Check the locking time
         if (asset.requestTime + LOCKING_TIME >= block.timestamp) {
