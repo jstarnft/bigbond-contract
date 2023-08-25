@@ -1,45 +1,9 @@
-# Ignore node_modules
-node_modules/
-
-# Ignore compiled artifacts
-contracts/artifacts/
-tests/artifacts/
-.daps/
-.deps/
-
-# Ignore IDE and editor-specific files
-.vscode/
-.idea/
-
-# Ignore build files
-build/
-dist/
-out/
-bin/
-
-# Ignore local development environment files
-.env
-.env.local
-
-# Ignore Solidity coverage reports
-coverage/
-
-# Ignore compiled JavaScript files
-*.js
-*.jsx
-
-# Ignore compiled TypeScript files
-*.tsbuildinfo
-
-# Ignore temporary files
-*.swp
-*.swo
-
-# Ignore package-lock.json for projects using npm
-package-lock.json
-
-# Ignore yarn.lock for projects using yarn
-yarn.lock
-
-# Others
-.prettierrc.json
+/node_modules
+/artifacts
+/cache
+/.env
+/.DS_Store
+/.vscode
+/.idea
+/.history
+*.log
