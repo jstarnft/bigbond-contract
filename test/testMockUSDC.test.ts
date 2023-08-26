@@ -1,3 +1,4 @@
+import { MockUSDC, BigBond } from "../typechain-types"
 import { ethers } from "hardhat"
 import { expect } from "chai"
 
