@@ -27,5 +27,8 @@
   },
   "dependencies": {
     "@openzeppelin/contracts": "^4.9.3"
+  },
+  "scripts": {
+    "bigbond-test": "npx hardhat test test/testBigBond.test.ts"
   }
 }

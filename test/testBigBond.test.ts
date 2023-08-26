@@ -1,36 +1,31 @@
 import { ethers } from "hardhat"
 import { expect } from "chai"
+import {
+  time,
+  loadFixture,
+} from "@nomicfoundation/hardhat-toolbox/network-helpers";
 
 describe("BigBond contract", function () {
-  it("should be deployed successfully", async () => {
-    const [owner] = await ethers.getSigners();
+  async function deployBeforeAll() {
+    const [admin, operator, user1, user2] = await ethers.getSigners();
     const MockUSDC = await ethers.deployContract("MockUSDC")
 
     const BigBondFactory = await ethers.getContractFactory("BigBond");
-    const BigBond = await BigBondFactory.deploy(MockUSDC.target, owner.address);
+    const BigBond = await BigBondFactory.deploy(MockUSDC.target, operator.address);
+
+    MockUSDC.transfer(operator.address, 500_000_000)
+    MockUSDC.transfer(user1.address, 30_000_000)
+    MockUSDC.transfer(user2.address, 30_000_000)
+
+    return { BigBond, MockUSDC, admin, operator, user1, user2 }
+  }
+
+  it("should be deployed successfully", async () => {
+    const { BigBond, admin, operator } = await loadFixture(deployBeforeAll)
+
+    expect(await BigBond.getAdmin()).to.equal(admin.address)
+    expect(await BigBond.getOperator()).to.equal(operator.address)
+    expect(await BigBond.paused()).to.be.false
   })
 
-
-  //   it("Deployment should assign the total supply of tokens to the owner", async function () {
-  //     const [owner] = await ethers.getSigners();
-  //     const mockUSDC = await ethers.deployContract("MockUSDC");
-  //     const ownerBalance = await mockUSDC.balanceOf(owner.address);
-  //     expect(await mockUSDC.totalSupply()).to.equal(ownerBalance);
-  //   });
-
-  //   it("Checks the transfer function", async function () {
-  //     const [owner, alice, bob] = await ethers.getSigners();
-  //     const mockUSDC = await ethers.deployContract("MockUSDC");
-  //     await mockUSDC.transfer(alice.address, 150);
-
-  //     try {
-  //       await mockUSDC.connect(alice).transfer(bob.address, 200);
-  //       assert.fail("Should have thrown an error");
-  //     } catch (error) {
-  //       expect(error.message).to.contain("ERC20: transfer amount exceeds balance");
-  //     }
-
-  //     expect(await mockUSDC.balanceOf(alice.address)).to.equal(150);
-  //     expect(await mockUSDC.balanceOf(bob.address)).to.equal(0);
-  //   })
 });
