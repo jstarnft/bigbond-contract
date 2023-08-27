@@ -26,6 +26,7 @@ contract BigBond is Pausable {
     address public operator; // The RWA operator role
     mapping(address => Asset) public userAssets;
     IERC20 public immutable tokenAddress;
+    bytes public constant EIP191_PREFIX = "\x19Ethereum Signed Message:\n64";
 
     /**
      * @dev Initializes the contract with the token address and operator.
@@ -119,14 +120,19 @@ contract BigBond is Pausable {
     }
 
     /**
-     * @dev This function returns a digest. The operator from backend will sign this digest and the signature is 
-            passed to the user.
+     * @dev This function returns a digest of `the given params with the EIP-191 prefix`. 
+     * The operator from backend will sign this digest if the given params is valid, and the 
+     * signature is passed to the user. See https://eips.ethereum.org/EIPS/eip-191 to learn 
+     * more about EIP-191.
      */
-    function calculateDigestForRequest(
-        uint256 withdrawAmount,
-        uint256 signingTime
-    ) public pure returns (bytes32) {
-        return keccak256(abi.encode(withdrawAmount, signingTime));
+    function calculateRequestDigest(uint256 withdrawAmount, uint256 signingTime)
+        public
+        pure
+        returns (bytes32)
+    {
+        bytes memory message = abi.encode(withdrawAmount, signingTime);
+        bytes32 digest = keccak256(bytes.concat(EIP191_PREFIX, message));
+        return digest;
     }
 
     /* ------------- Functions for users ------------- */
@@ -145,10 +151,10 @@ contract BigBond is Pausable {
 
     /**
      * @dev Allows users to request a withdrawal of assets.
-     * @param withdrawAmount: The amount requested to withdraw. This param should be given by user from frontend, 
-            and checked by the operator from the backend.
-     * @param signingTime: The time when the request was signed. The user must use this signature within a certain time, 
-            usually 3 minutes.
+     * @param withdrawAmount: The amount requested to withdraw. This param should be given by 
+     * user from frontend, and checked by the operator from the backend.
+     * @param signingTime: The time when the request was signed. The user must use this signature 
+     * within a certain time, usually 3 minutes.
      * @param signature: The operator's signature for request validation.
      */
     function requestWithdraw(
@@ -169,7 +175,7 @@ contract BigBond is Pausable {
         emit RequestEvent(_msgSender(), withdrawAmount);
 
         // Recover signature
-        bytes32 digest = calculateDigestForRequest(withdrawAmount, signingTime);
+        bytes32 digest = calculateRequestDigest(withdrawAmount, signingTime);
         address expected_address = ECDSA.recover(digest, signature);
 
         // Check the validity of signature
@@ -182,8 +188,9 @@ contract BigBond is Pausable {
     }
 
     /**
-     * @dev Allows users to claim their pending assets after a withdrawal request is approved. The user should call this
-            function at least a certain time after requesting, usually 7 days.
+     * @dev Allows users to claim their pending assets after a withdrawal request is approved. 
+     * The user should call this function at least a certain time after requesting, usually 
+     * 7 days.
      */
     function claimAsset() public stateIsPending(_msgSender()) whenNotPaused {
         // Change the state
