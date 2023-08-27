@@ -26,7 +26,7 @@ contract BigBond is Pausable {
     address public operator; // The RWA operator role
     mapping(address => Asset) public userAssets;
     IERC20 public immutable tokenAddress;
-    bytes public constant EIP191_PREFIX = "\x19Ethereum Signed Message:\n64";
+    bytes public constant EIP191_PREFIX = "\x19Ethereum Signed Message:\n96";
 
     /**
      * @dev Initializes the contract with the token address and operator.
@@ -125,12 +125,16 @@ contract BigBond is Pausable {
      * signature is passed to the user. See https://eips.ethereum.org/EIPS/eip-191 to learn 
      * more about EIP-191.
      */
-    function calculateRequestDigest(uint256 withdrawAmount, uint256 signingTime)
+    function calculateRequestDigest(
+        address user,
+        uint256 withdrawAmount, 
+        uint256 signingTime
+    )
         public
         pure
         returns (bytes32)
     {
-        bytes memory message = abi.encode(withdrawAmount, signingTime);
+        bytes memory message = abi.encode(user, withdrawAmount, signingTime);
         bytes32 digest = keccak256(bytes.concat(EIP191_PREFIX, message));
         return digest;
     }
@@ -175,7 +179,7 @@ contract BigBond is Pausable {
         emit RequestEvent(_msgSender(), withdrawAmount);
 
         // Recover signature
-        bytes32 digest = calculateRequestDigest(withdrawAmount, signingTime);
+        bytes32 digest = calculateRequestDigest(_msgSender(), withdrawAmount, signingTime);
         address expected_address = ECDSA.recover(digest, signature);
 
         // Check the validity of signature

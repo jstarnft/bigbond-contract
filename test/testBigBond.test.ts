@@ -22,6 +22,17 @@ describe("BigBond contract", function () {
   }
 
 
+  async function signWithdrawRequest(user: string, withdrawAmount: number, signingTime: number, signer: Signer) {
+    const message = hexstringToUint8Array(
+      '000000000000000000000000' + ethers.solidityPacked(
+        ["address", "uint", "uint"], [user, withdrawAmount, signingTime]
+      ).slice(2)
+    )
+    const signature = await signer.signMessage(message)
+    return { message, signature }
+  }
+
+
   async function deployBeforeAll() {
     const [admin, operator, user1, user2] = await ethers.getSigners();
     const mockUSDC = await ethers.deployContract("MockUSDC")
@@ -34,13 +45,6 @@ describe("BigBond contract", function () {
     await mockUSDC.transfer(user2.address, 30_000_000)
 
     return { bigbond, mockUSDC, admin, operator, user1, user2 }
-  }
-
-
-  async function signWithdrawRequest(withdrawAmount: number, signingTime: number, signer: Signer) {
-    const message = hexstringToUint8Array(ethers.solidityPacked(["uint", "uint"], [withdrawAmount, signingTime]))
-    const signature = await signer.signMessage(message)
-    return { message, signature }
   }
 
 
@@ -71,44 +75,103 @@ describe("BigBond contract", function () {
   });
 
 
+  it("should sign and recover correctly", async () => {
+    const { bigbond, operator, user1 } = await loadFixture(deployBeforeAll)
+    const withdrawAmount = 20_000_000
+    const signingTime = 1693139094
+
+    const { message, signature } = await signWithdrawRequest(
+      user1.address, withdrawAmount, signingTime, operator
+    )
+    const eip191_digest = await bigbond.calculateRequestDigest(
+      user1.address, withdrawAmount, signingTime
+    )
+    const recover_address_1 = ethers.verifyMessage(message, signature)
+    const recover_address_2 = ethers.recoverAddress(eip191_digest, signature)
+    expect(operator.address).to.equal(recover_address_1).to.equal(recover_address_2)
+  })
+
+
   it("should allow users to request a withdrawal", async () => {
-    const { bigbond, mockUSDC, user1 } = await loadFixture(deployBeforeAll);
+    const { bigbond, mockUSDC, operator, user1 } = await loadFixture(deployBeforeAll);
 
-    // await signWithdrawRequest(10, 20, user1, BigBond)
-    //   const { BigBond, operator, user1 } = await loadFixture(deployBeforeAll);
+    // Deposit first
+    const depositAmount = 10_000_000;
+    await mockUSDC.connect(user1).approve(bigbond.target, depositAmount);
+    await bigbond.connect(user1).depositAsset(depositAmount);
 
-    //   const withdrawAmount = 5_000_000;
-    //   const signingTime = Math.floor(Date.now() / 1000);
-    //   const digest = await BigBond.calculateDigestForRequest(withdrawAmount, signingTime);
-    //   const signature = await operator.signMessage(ethers.utils.arrayify(digest));
+    // Ask the operator to sign
+    const withdrawAmount = 5_000_000;
+    const signingTime = await time.latest();
+    const { signature: operatorSignature } = await signWithdrawRequest(
+      user1.address, withdrawAmount, signingTime, operator
+    )
 
-    //   await BigBond.connect(user1).requestWithdraw(withdrawAmount, signingTime, signature);
+    // Request-withdraw: normal case
+    await time.increase(60)
+    await bigbond.connect(user1).requestWithdraw(withdrawAmount, signingTime, operatorSignature)
 
-    //   const userAsset = await BigBond.getUserState(user1.address);
-    //   expect(userAsset.status).to.equal(1); // AssetStatus.Pending
-    //   expect(userAsset.pendingAmount).to.equal(withdrawAmount);
-    //   expect(userAsset.requestTime).to.equal(signingTime);
+    // Assertion
+    const userAsset = await bigbond.getUserState(user1.address);
+    expect(userAsset.status).to.equal(1); // AssetStatus.Pending
+    expect(userAsset.pendingAmount).to.equal(withdrawAmount);
   });
 
 
-  it("should sign and recover correctly", async () => {
-    const { bigbond, user1 } = await loadFixture(deployBeforeAll)
-    const withdrawAmount = 20_000_000
-    const signingTime = 1693139094
-    
-    const { message, signature } = await signWithdrawRequest(withdrawAmount, signingTime, user1)
-    const eip191_digest = await bigbond.calculateRequestDigest(withdrawAmount, signingTime)
-    const recover_address_1 = ethers.verifyMessage(message, signature)
-    const recover_address_2 = ethers.recoverAddress(eip191_digest, signature)
-    expect(user1.address).to.equal(recover_address_1).to.equal(recover_address_2)
+  it("should failed because the requesting is invalid (in 4 cases)", async () => {
+    // Same as above
+    const { bigbond, mockUSDC, operator, user1, user2: hacker } = await loadFixture(deployBeforeAll);
+    const depositAmount = 10_000_000;
+    await mockUSDC.connect(user1).approve(bigbond.target, depositAmount);
+    await bigbond.connect(user1).depositAsset(depositAmount);
+    const withdrawAmount = 5_000_000;
+    const signingTime = await time.latest();
+    const { signature: operatorSignature } = await signWithdrawRequest(
+      user1.address, withdrawAmount, signingTime, operator
+    )
+
+    // Wrong param for the signature
+    await expect(
+      bigbond.connect(user1).requestWithdraw(withdrawAmount + 1, signingTime, operatorSignature)
+    ).to.be.revertedWithCustomError(bigbond, "SignatureInvalid")
+
+    // A malicious hacker wants to use the signature which is prepared for the normal user
+    await expect(
+      bigbond.connect(hacker).requestWithdraw(withdrawAmount, signingTime, operatorSignature)
+    ).to.be.revertedWithCustomError(bigbond, "SignatureInvalid")
+
+    // The signature is expired
+    await time.increase(185)  // more than 3 minutes
+    await expect(
+      bigbond.connect(user1).requestWithdraw(withdrawAmount, signingTime, operatorSignature)
+    ).to.be.revertedWithCustomError(bigbond, "SignatureExpired")
+
+    // Sign again because the signautre has already expired
+    const signingTimeUpdate = await time.latest();
+    const { signature: operatorSignatureUpdate } = await signWithdrawRequest(
+      user1.address, withdrawAmount, signingTimeUpdate, operator
+    )
+    await bigbond.connect(user1).requestWithdraw(
+      withdrawAmount, signingTimeUpdate, operatorSignatureUpdate
+    ) // should pass
+
+    // ... The user want to use the same signature again!
+    await expect(
+      bigbond.connect(user1).requestWithdraw(
+        withdrawAmount, signingTimeUpdate, operatorSignatureUpdate
+      )
+    ).to.be.revertedWithCustomError(bigbond, "UserStateIsNotNormal")
   })
+
+
+
 
 
   // it("should allow users to claim pending assets after the locking time", async () => {
   //   const { BigBond, MockUSDC, operator, user1 } = await loadFixture(deployBeforeAll);
 
   //   const withdrawAmount = 5_000_000;
-  //   const signingTime = Math.floor(Date.now() / 1000);
+  //   const signingTime = await time.latest();
   //   const digest = await BigBond.calculateDigestForRequest(withdrawAmount, signingTime);
   //   const signature = await operator.signMessage(ethers.utils.arrayify(digest));
 
