@@ -12,6 +12,7 @@ export function hexstringToUint8Array(hexstring: string): Uint8Array {
   return uint8Array;
 }
 
+// This is the function for the backend operator to sign the withdraw request from user.
 export async function signWithdrawRequest(user: string, withdrawAmount: number, signingTime: number, signer: Signer) {
   const message = hexstringToUint8Array(
     '000000000000000000000000' + ethers.solidityPacked(
