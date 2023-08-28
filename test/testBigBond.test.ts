@@ -1,14 +1,10 @@
 import { MockUSDC, BigBond } from "../typechain-types"
 import { ethers } from "hardhat"
 import { expect } from "chai"
-import {
-  time,
-  loadFixture,
-} from "@nomicfoundation/hardhat-toolbox/network-helpers";
-import { Signer, hexlify } from "ethers";
+import { time, loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { Signer } from "ethers";
 
 describe("BigBond contract", function () {
-
 
   function hexstringToUint8Array(hexstring: string): Uint8Array {
     if (hexstring.startsWith('0x')) {
