@@ -197,21 +197,22 @@ contract BigBond is Pausable {
      * 7 days.
      */
     function claimAsset() public stateIsPending(_msgSender()) whenNotPaused {
-        // Change the state
+        // Read the state
         Asset storage asset = userAssets[_msgSender()];
-        uint256 pendingAmount = asset.pendingAmount;
-        asset.pendingAmount = 0;
-        asset.status = AssetStatus.Normal;
-        asset.requestTime = 0;
-        emit ClaimEvent(_msgSender(), pendingAmount);
 
         // Transfer token
-        tokenAddress.transfer(_msgSender(), pendingAmount);
+        tokenAddress.transfer(_msgSender(), asset.pendingAmount);
 
         // Check the locking time
         if (asset.requestTime + LOCKING_TIME >= block.timestamp) {
             revert ClaimTooEarly();
         }
+
+        // ... and everything returns to normal
+        asset.pendingAmount = 0;
+        asset.status = AssetStatus.Normal;
+        asset.requestTime = 0;
+        emit ClaimEvent(_msgSender(), asset.pendingAmount);
     }
 
     /* ------------- Functions for operator ------------- */

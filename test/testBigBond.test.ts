@@ -164,31 +164,40 @@ describe("BigBond contract", function () {
   })
 
 
+  it("should allow users to claim pending assets after the locking time", async () => {
+    // Same as above
+    const { bigbond, mockUSDC, operator, user1 } = await loadFixture(deployBeforeAll);
+    const depositAmount = 10_000_000;
+    await mockUSDC.connect(user1).approve(bigbond.target, depositAmount);
+    await bigbond.connect(user1).depositAsset(depositAmount);
+    const withdrawAmount = 5_000_000;
+    const signingTime = await time.latest();
+    const { signature: operatorSignature } = await signWithdrawRequest(
+      user1.address, withdrawAmount, signingTime, operator
+    )
 
+    // Request successfully
+    await bigbond.connect(user1).requestWithdraw(withdrawAmount, signingTime, operatorSignature)
+    const userBalanceOrigin = await mockUSDC.balanceOf(user1.address);
 
+    // If claiming too early...
+    await time.increase(6 * 24 * 60 * 60); // 6 days
+    await expect(
+      bigbond.connect(user1).claimAsset()
+    ).to.be.revertedWithCustomError(bigbond, "ClaimTooEarly");
 
-  // it("should allow users to claim pending assets after the locking time", async () => {
-  //   const { BigBond, MockUSDC, operator, user1 } = await loadFixture(deployBeforeAll);
+    // After 7 days
+    await time.increase(1 * 24 * 60 * 60); // ... another 1 day
+    await bigbond.connect(user1).claimAsset();
 
-  //   const withdrawAmount = 5_000_000;
-  //   const signingTime = await time.latest();
-  //   const digest = await BigBond.calculateDigestForRequest(withdrawAmount, signingTime);
-  //   const signature = await operator.signMessage(ethers.utils.arrayify(digest));
-
-  //   await BigBond.connect(user1).requestWithdraw(withdrawAmount, signingTime, signature);
-
-  //   // Fast-forward time to after the locking time
-  //   await time.increase(7 * 24 * 60 * 60); // 7 days
-
-  //   await BigBond.connect(user1).claimAsset();
-
-  //   const userAsset = await BigBond.getUserState(user1.address);
-  //   expect(userAsset.status).to.equal(0); // AssetStatus.Normal
-  //   expect(userAsset.pendingAmount).to.equal(0);
-  //   expect(userAsset.requestTime).to.equal(0);
-
-  //   const userBalance = await MockUSDC.balanceOf(user1.address);
-  //   expect(userBalance).to.equal(withdrawAmount);
-  // });
+    // Assertion
+    const userAsset = await bigbond.getUserState(user1.address);
+    expect(userAsset.status).to.equal(0); // AssetStatus.Normal
+    expect(userAsset.pendingAmount).to.equal(0);
+    expect(userAsset.requestTime).to.equal(0);
+    
+    const userBalance = await mockUSDC.balanceOf(user1.address);
+    expect(userBalance - userBalanceOrigin).to.equal(withdrawAmount);
+  });
 
 });
