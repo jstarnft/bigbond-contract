@@ -195,9 +195,33 @@ describe("BigBond contract", function () {
     expect(userAsset.status).to.equal(0); // AssetStatus.Normal
     expect(userAsset.pendingAmount).to.equal(0);
     expect(userAsset.requestTime).to.equal(0);
-    
+
     const userBalance = await mockUSDC.balanceOf(user1.address);
     expect(userBalance - userBalanceOrigin).to.equal(withdrawAmount);
   });
+
+
+  it("should borrow and repay successfully by the operator", async () => {
+    const { bigbond, mockUSDC, operator, user1, user2: hacker } = await loadFixture(deployBeforeAll);
+    const depositAmount = 10_000_000;
+    await mockUSDC.connect(user1).approve(bigbond.target, depositAmount);
+    await bigbond.connect(user1).depositAsset(depositAmount);
+    const operatorBalanceOrigin = await mockUSDC.balanceOf(operator.address)
+
+    const borrowAmount = 8_000_000;
+    await expect(
+      bigbond.connect(hacker).borrowAssets(borrowAmount)
+    ).to.be.revertedWithCustomError(bigbond, "NotOperator")
+
+    await bigbond.connect(operator).borrowAssets(borrowAmount)
+    expect(await mockUSDC.balanceOf(operator.address) - operatorBalanceOrigin)
+      .to.equal(borrowAmount)
+
+    const repayAmount = 9_000_000;
+    await mockUSDC.connect(operator).approve(bigbond.target, repayAmount);
+    await bigbond.connect(operator).repayAssets(repayAmount)
+    expect(await mockUSDC.balanceOf(operator.address) - operatorBalanceOrigin)
+      .to.equal(borrowAmount - repayAmount)
+  })
 
 });
