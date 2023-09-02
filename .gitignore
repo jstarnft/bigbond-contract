@@ -8,3 +8,5 @@
 /.idea
 /.history
 *.log
+/migrations
+/build
