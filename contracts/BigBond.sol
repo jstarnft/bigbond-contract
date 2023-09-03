@@ -209,10 +209,10 @@ contract BigBond is Pausable {
         }
 
         // ... and everything returns to normal
+        emit ClaimEvent(_msgSender(), asset.pendingAmount);
         asset.pendingAmount = 0;
         asset.status = AssetStatus.Normal;
         asset.requestTime = 0;
-        emit ClaimEvent(_msgSender(), asset.pendingAmount);
     }
 
     /* ------------- Functions for operator ------------- */
