@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@openzeppelin/contracts": "^4.9.3",
+    "dotenv": "^16.3.1",
     "truffle": "^5.11.3",
     "truffle-flattener": "^1.6.0"
   },
