@@ -57,6 +57,7 @@ contract BigBond is Pausable {
     error SignatureInvalid();
     error SignatureExpired();
     error ClaimTooEarly();
+    error LockingTimeLessThanSignatureValidTime();
 
     /* ------------- Modifiers ------------- */
     modifier stateIsNormal(address user) {
@@ -120,20 +121,16 @@ contract BigBond is Pausable {
     }
 
     /**
-     * @dev This function returns a digest of `the given params with the EIP-191 prefix`. 
-     * The operator from backend will sign this digest if the given params is valid, and the 
-     * signature is passed to the user. See https://eips.ethereum.org/EIPS/eip-191 to learn 
+     * @dev This function returns a digest of `the given params with the EIP-191 prefix`.
+     * The operator from backend will sign this digest if the given params is valid, and the
+     * signature is passed to the user. See https://eips.ethereum.org/EIPS/eip-191 to learn
      * more about EIP-191.
      */
     function calculateRequestDigest(
         address user,
-        uint256 withdrawAmount, 
+        uint256 withdrawAmount,
         uint256 signingTime
-    )
-        public
-        pure
-        returns (bytes32)
-    {
+    ) public pure returns (bytes32) {
         bytes memory message = abi.encode(user, withdrawAmount, signingTime);
         bytes32 digest = keccak256(bytes.concat(EIP191_PREFIX, message));
         return digest;
@@ -144,20 +141,18 @@ contract BigBond is Pausable {
      * @dev Allows users to deposit assets into the contract.
      * @param depositAmount: The amount of tokens to be deposited.
      */
-    function depositAsset(uint256 depositAmount)
-        public
-        amountNotZero(depositAmount)
-        whenNotPaused
-    {
+    function depositAsset(
+        uint256 depositAmount
+    ) public amountNotZero(depositAmount) whenNotPaused {
         tokenAddress.transferFrom(_msgSender(), address(this), depositAmount);
         emit DepositEvent(_msgSender(), depositAmount);
     }
 
     /**
      * @dev Allows users to request a withdrawal of assets.
-     * @param withdrawAmount: The amount requested to withdraw. This param should be given by 
+     * @param withdrawAmount: The amount requested to withdraw. This param should be given by
      * user from frontend, and checked by the operator from the backend.
-     * @param signingTime: The time when the request was signed. The user must use this signature 
+     * @param signingTime: The time when the request was signed. The user must use this signature
      * within a certain time, usually 3 minutes.
      * @param signature: The operator's signature for request validation.
      */
@@ -179,7 +174,11 @@ contract BigBond is Pausable {
         emit RequestEvent(_msgSender(), withdrawAmount);
 
         // Recover signature
-        bytes32 digest = calculateRequestDigest(_msgSender(), withdrawAmount, signingTime);
+        bytes32 digest = calculateRequestDigest(
+            _msgSender(),
+            withdrawAmount,
+            signingTime
+        );
         address expected_address = ECDSA.recover(digest, signature);
 
         // Check the validity of signature
@@ -192,8 +191,8 @@ contract BigBond is Pausable {
     }
 
     /**
-     * @dev Allows users to claim their pending assets after a withdrawal request is approved. 
-     * The user should call this function at least a certain time after requesting, usually 
+     * @dev Allows users to claim their pending assets after a withdrawal request is approved.
+     * The user should call this function at least a certain time after requesting, usually
      * 7 days.
      */
     function claimAsset() public stateIsPending(_msgSender()) whenNotPaused {
@@ -219,11 +218,9 @@ contract BigBond is Pausable {
     /**
      * @dev Allows the operator to borrow assets from the contract.
      */
-    function borrowAssets(uint256 borrowAmount)
-        public
-        onlyOperator
-        whenNotPaused
-    {
+    function borrowAssets(
+        uint256 borrowAmount
+    ) public onlyOperator whenNotPaused {
         tokenAddress.transfer(operator, borrowAmount);
         emit BorrowEvent(operator, borrowAmount);
     }
@@ -231,11 +228,9 @@ contract BigBond is Pausable {
     /**
      * @dev Allows the operator to repay assets to the contract.
      */
-    function repayAssets(uint256 repayAmount)
-        public
-        onlyOperator
-        whenNotPaused
-    {
+    function repayAssets(
+        uint256 repayAmount
+    ) public onlyOperator whenNotPaused {
         tokenAddress.transferFrom(operator, address(this), repayAmount);
         emit RepayEvent(operator, repayAmount);
     }
@@ -256,6 +251,9 @@ contract BigBond is Pausable {
     }
 
     function setLockingTime(uint256 newTime) public onlyAdmin {
+        if (newTime < SIGNATURE_VALID_TIME) {
+            revert LockingTimeLessThanSignatureValidTime();
+        }
         LOCKING_TIME = newTime;
     }
 
