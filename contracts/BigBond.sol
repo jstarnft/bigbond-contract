@@ -199,13 +199,13 @@ contract BigBond is Pausable {
         // Read the state
         Asset storage asset = userAssets[_msgSender()];
 
-        // Transfer token
-        tokenAddress.transfer(_msgSender(), asset.pendingAmount);
-
         // Check the locking time
         if (asset.requestTime + LOCKING_TIME >= block.timestamp) {
             revert ClaimTooEarly();
         }
+
+        // Transfer token
+        tokenAddress.transfer(_msgSender(), asset.pendingAmount);
 
         // ... and everything returns to normal
         emit ClaimEvent(_msgSender(), asset.pendingAmount);
