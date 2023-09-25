@@ -22,12 +22,13 @@ contract BigBond is Pausable {
 
     uint256 SIGNATURE_VALID_TIME = 3 minutes;
     uint256 LOCKING_TIME = 7 days;
+    uint256 immutable SIGNATURE_SALT;
     address public admin; // The root admin of this contract
     address public rwaOperator; // The RWA operator role
     address public withdrawSigner; // The backend signer
     mapping(address => Asset) public userAssets;
     IERC20 public immutable tokenAddress;
-    bytes public constant EIP191_PREFIX = "\x19Ethereum Signed Message:\n96";
+    bytes public constant EIP191_PREFIX = "\x19Ethereum Signed Message:\n128";
 
     /**
      * @dev Initializes the contract with the token address and operator.
@@ -35,16 +36,20 @@ contract BigBond is Pausable {
      * @param rwaOperatorInput: The address of the RWA operator.
      * @param withdrawSignerInput: The address of the backend signer, signing the withdraw
         request for users.
+     * @param signatureSalt: The salt used to generate the signature. Should be different
+        for each contract on each chain!
      */
     constructor(
         address tokenAddressInput,
         address rwaOperatorInput,
-        address withdrawSignerInput
+        address withdrawSignerInput,
+        uint256 signatureSalt
     ) {
         admin = _msgSender();
         tokenAddress = IERC20(tokenAddressInput);
         rwaOperator = rwaOperatorInput;
         withdrawSigner = withdrawSignerInput;
+        SIGNATURE_SALT = signatureSalt;
     }
 
     /* ------------- Events ------------- */
@@ -150,8 +155,8 @@ contract BigBond is Pausable {
         address user,
         uint256 withdrawAmount,
         uint256 signingTime
-    ) public pure returns (bytes32) {
-        bytes memory message = abi.encode(user, withdrawAmount, signingTime);
+    ) public view returns (bytes32) {
+        bytes memory message = abi.encode(user, withdrawAmount, signingTime, SIGNATURE_SALT);
         bytes32 digest = keccak256(bytes.concat(EIP191_PREFIX, message));
         return digest;
     }

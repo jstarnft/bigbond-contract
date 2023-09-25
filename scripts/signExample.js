@@ -12,9 +12,10 @@ function hexstringToUint8Array(hexstring) {
   return uint8Array;
 }
 
-async function signWithdrawRequest(user, withdrawAmount, signingTime, signer) {
+async function signWithdrawRequest(salt, user, withdrawAmount, signingTime, signer) {
   const rawMessage = ethers.solidityPacked(
-    ["address", "uint", "uint"], [user, withdrawAmount, signingTime]
+    ["address", "uint", "uint", "uint"],
+    [user, withdrawAmount, signingTime, salt]
   ).slice(2)
   const message = hexstringToUint8Array(
     '000000000000000000000000' + rawMessage
@@ -25,6 +26,7 @@ async function signWithdrawRequest(user, withdrawAmount, signingTime, signer) {
 
 (async function () {
   const privateKey = process.env.TEST_PRIVATE_KEY
+  const salt = process.env.SALT_SIGNATURE
   const wallet = new ethers.Wallet(privateKey);
   console.log('Operator Address:', wallet.address)
 
@@ -34,7 +36,7 @@ async function signWithdrawRequest(user, withdrawAmount, signingTime, signer) {
   const withdrawAmount = '70000000000000000'
   const user = '0xb54e978a34Af50228a3564662dB6005E9fB04f5a'
 
-  const { rawMessage, signature } = await signWithdrawRequest(user, withdrawAmount, nowTime, wallet)
+  const { rawMessage, signature } = await signWithdrawRequest(salt, user, withdrawAmount, nowTime, wallet)
   console.log('Raw message:', rawMessage)
   console.log('Signature:', signature)
 })()

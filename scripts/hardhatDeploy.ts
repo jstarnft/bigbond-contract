@@ -1,6 +1,7 @@
 import { ethers } from "hardhat"
 import { signWithdrawRequest } from "./utils";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
+const SIGNATURE_SALT = 10001;
 
 async function main() {
   const [deployer, operator, user] = await ethers.getSigners();
@@ -9,7 +10,7 @@ async function main() {
   const token = await ethers.deployContract("MockUSDC");
   console.log("Contract address:", await token.getAddress());
 
-  const { signature, message } = await signWithdrawRequest(user.address, 10, await time.latest(), operator)
+  const { signature, message } = await signWithdrawRequest(SIGNATURE_SALT, user.address, 10, await time.latest(), operator)
   console.log("Signing message: ", message)
   console.log("Signature: ", signature)
 }
