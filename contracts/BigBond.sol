@@ -145,6 +145,10 @@ contract BigBond is Pausable {
         return userAssets[user];
     }
 
+    function getProductSalt() public view returns (uint256) {
+        return SIGNATURE_SALT;
+    }
+
     /**
      * @dev This function returns a digest of `the given params with the EIP-191 prefix`.
      * The operator from backend will sign this digest if the given params is valid, and the
