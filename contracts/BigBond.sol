@@ -23,7 +23,8 @@ contract BigBond is Pausable {
     uint256 SIGNATURE_VALID_TIME = 3 minutes;
     uint256 LOCKING_TIME = 7 days;
     address public admin; // The root admin of this contract
-    address public operator; // The RWA operator role
+    address public rwaOperator; // The RWA operator role
+    address public withdrawSigner; // The backend signer
     mapping(address => Asset) public userAssets;
     IERC20 public immutable tokenAddress;
     bytes public constant EIP191_PREFIX = "\x19Ethereum Signed Message:\n96";
@@ -31,12 +32,19 @@ contract BigBond is Pausable {
     /**
      * @dev Initializes the contract with the token address and operator.
      * @param tokenAddressInput: The address of the ERC20 token contract.
-     * @param operatorInput: The address of the RWA operator.
+     * @param rwaOperatorInput: The address of the RWA operator.
+     * @param withdrawSignerInput: The address of the backend signer, signing the withdraw
+        request for users.
      */
-    constructor(address tokenAddressInput, address operatorInput) {
+    constructor(
+        address tokenAddressInput,
+        address rwaOperatorInput,
+        address withdrawSignerInput
+    ) {
         admin = _msgSender();
         tokenAddress = IERC20(tokenAddressInput);
-        operator = operatorInput;
+        rwaOperator = rwaOperatorInput;
+        withdrawSigner = withdrawSignerInput;
     }
 
     /* ------------- Events ------------- */
@@ -54,6 +62,7 @@ contract BigBond is Pausable {
     error AmountIsZero();
     error NotOperator();
     error NotAdmin();
+    error NotWithdrawSigner();
     error SignatureInvalid();
     error SignatureExpired();
     error ClaimTooEarly();
@@ -88,6 +97,13 @@ contract BigBond is Pausable {
         _;
     }
 
+    modifier onlyWithdrawSigner() {
+        if (_msgSender() != getSigner()) {
+            revert NotWithdrawSigner();
+        }
+        _;
+    }
+
     modifier onlyAdmin() {
         if (_msgSender() != getAdmin()) {
             revert NotAdmin();
@@ -109,7 +125,11 @@ contract BigBond is Pausable {
     }
 
     function getOperator() public view returns (address) {
-        return operator;
+        return rwaOperator;
+    }
+
+    function getSigner() public view returns (address) {
+        return withdrawSigner;
     }
 
     function currentTotalBalance() public view returns (uint256) {
@@ -182,7 +202,7 @@ contract BigBond is Pausable {
         address expected_address = ECDSA.recover(digest, signature);
 
         // Check the validity of signature
-        if (expected_address != getOperator()) {
+        if (expected_address != getSigner()) {
             revert SignatureInvalid();
         }
         if (signingTime + SIGNATURE_VALID_TIME <= block.timestamp) {
@@ -214,15 +234,15 @@ contract BigBond is Pausable {
         asset.requestTime = 0;
     }
 
-    /* ------------- Functions for operator ------------- */
+    /* ------------- Functions for RWA operator ------------- */
     /**
      * @dev Allows the operator to borrow assets from the contract.
      */
     function borrowAssets(
         uint256 borrowAmount
     ) public onlyOperator whenNotPaused {
-        tokenAddress.transfer(operator, borrowAmount);
-        emit BorrowEvent(operator, borrowAmount);
+        tokenAddress.transfer(rwaOperator, borrowAmount);
+        emit BorrowEvent(rwaOperator, borrowAmount);
     }
 
     /**
@@ -231,8 +251,8 @@ contract BigBond is Pausable {
     function repayAssets(
         uint256 repayAmount
     ) public onlyOperator whenNotPaused {
-        tokenAddress.transferFrom(operator, address(this), repayAmount);
-        emit RepayEvent(operator, repayAmount);
+        tokenAddress.transferFrom(rwaOperator, address(this), repayAmount);
+        emit RepayEvent(rwaOperator, repayAmount);
     }
 
     /* ------------- Functions for admin ------------- */
@@ -242,7 +262,7 @@ contract BigBond is Pausable {
     }
 
     function setOperator(address newOperator) public onlyAdmin {
-        operator = newOperator;
+        rwaOperator = newOperator;
         emit OperatorChanged(newOperator);
     }
 
