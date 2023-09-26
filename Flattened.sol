@@ -1422,9 +1422,9 @@ contract BigBond is Pausable {
     uint256 SIGNATURE_VALID_TIME = 3 minutes;
     uint256 LOCKING_TIME = 7 days;
     uint256 immutable SIGNATURE_SALT;
-    address public admin; // The root admin of this contract
-    address public rwaOperator; // The RWA operator role
-    address public withdrawSigner; // The backend signer
+    address admin; // The root admin of this contract
+    address rwaOperator; // The RWA operator role
+    address withdrawSigner; // The backend signer
     mapping(address => Asset) public userAssets;
     IERC20 public immutable tokenAddress;
     bytes public constant EIP191_PREFIX = "\x19Ethereum Signed Message:\n128";
@@ -1459,6 +1459,7 @@ contract BigBond is Pausable {
     event RepayEvent(address indexed operator, uint256 repayAmount);
     event AdminChanged(address newAdmin);
     event OperatorChanged(address newOperator);
+    event SignerChanged(address newSigner);
 
     /* ------------- Errors ------------- */
     error UserStateIsNotNormal();
@@ -1466,7 +1467,6 @@ contract BigBond is Pausable {
     error AmountIsZero();
     error NotOperator();
     error NotAdmin();
-    error NotWithdrawSigner();
     error SignatureInvalid();
     error SignatureExpired();
     error ClaimTooEarly();
@@ -1497,13 +1497,6 @@ contract BigBond is Pausable {
     modifier onlyOperator() {
         if (_msgSender() != getOperator()) {
             revert NotOperator();
-        }
-        _;
-    }
-
-    modifier onlyWithdrawSigner() {
-        if (_msgSender() != getSigner()) {
-            revert NotWithdrawSigner();
         }
         _;
     }
@@ -1610,7 +1603,7 @@ contract BigBond is Pausable {
         address expected_address = ECDSA.recover(digest, signature);
 
         // Check the validity of signature
-        if (expected_address != getSigner()) {
+        if (expected_address != withdrawSigner) {
             revert SignatureInvalid();
         }
         if (signingTime + SIGNATURE_VALID_TIME <= block.timestamp) {
@@ -1672,6 +1665,11 @@ contract BigBond is Pausable {
     function setOperator(address newOperator) public onlyAdmin {
         rwaOperator = newOperator;
         emit OperatorChanged(newOperator);
+    }
+
+    function setSigner(address newSigner) public onlyAdmin {
+        withdrawSigner = newSigner;
+        emit SignerChanged(newSigner);
     }
 
     function setSignatureValidTime(uint256 newTime) public onlyAdmin {
